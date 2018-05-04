@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <property name="DevHome" value="/tmp/spark-streaming/logs"/>
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <layout class="ch.qos.logback.classic.PatternLayout">
+            <Pattern>
+                %d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36}.%M\(%line\): %msg%n
+            </Pattern>
+        </layout>
+    </appender>
+
+    <logger name="org.muks" level="info">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+
+    <appender name="GAME" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${DevHome}/stream.log</file>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <Pattern>[%d{yyyy-MM-dd HH:mm:ss} %-5level %logger{36}.%M\(%line\)]: %msg%n</Pattern>
+        </encoder>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <!-- rollover daily -->
+            <fileNamePattern>${DevHome}/%d{yyyy/MM/dd}/archived/game.%i.log
+            </fileNamePattern>
+            <timeBasedFileNamingAndTriggeringPolicy
+                    class="ch.qos.logback.core.rolling.SizeAndTimeBasedFNATP">
+                <maxFileSize>10MB</maxFileSize>
+            </timeBasedFileNamingAndTriggeringPolicy>
+        </rollingPolicy>
+    </appender>
+
+    <logger name="org.muks.insider" level="info" additivity="true">
+        <appender-ref ref="GAME"/>
+    </logger>
+
+
+    <appender name="TestLog" class="ch.qos.logback.core.FileAppender">
+        <file>${DevHome}/tests.log</file>
+        <append>true</append>
+        <encoder>
+            <Pattern>[%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level]: %msg%n</Pattern>
+        </encoder>
+    </appender>
+    <!-- additivity=false ensures analytics events only goes to the analytics log -->
+    <logger name="TestLog" level="info" additivity="false">
+        <appender-ref ref="TestLog"/>
+    </logger>
+
+
+
+</configuration>
