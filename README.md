@@ -31,4 +31,16 @@ spark kafka based streaming for realtime analytics
     );
 
 ### Misc
-    SLF4J is used for logging and the logs paths are defauled to /tmp/spark-stream/logs/ with stream.log and test.log (for unit test case logging) purpose.  
+    SLF4J is used for logging and the logs paths are defauled to /tmp/spark-stream/logs/ with stream.log and test.log (for unit test case logging) purpose.
+
+
+### Help required?
+    If the jar is executed with invalid args, auto exception is throw as below;
+
+        usage: java -cp <jar-file> org.muks.insider.analytics.Analytics -brokers
+                    <comma separated list of broker hostname>  -topics <comma
+                    separated list of topics>
+         -brokers <arg>   comma separated list of broker hostname.
+         -help            Help!
+         -topics <arg>    comma separated list of topics.
+         -version         1.0

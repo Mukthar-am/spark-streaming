@@ -1,16 +1,19 @@
 package org.muks.insider.analytics;
 
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.ParseException;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.spark.SparkConf;
-import org.apache.spark.api.java.JavaRDD;
-import org.apache.spark.api.java.function.VoidFunction;
 import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.api.java.JavaInputDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
 import org.apache.spark.streaming.kafka010.ConsumerStrategies;
 import org.apache.spark.streaming.kafka010.KafkaUtils;
 import org.apache.spark.streaming.kafka010.LocationStrategies;
+import org.muks.insider.cli.ParseCLI;
+import org.muks.insider.cli.ParserOptionEntity;
+import org.muks.insider.cli.ParserOptions;
 import org.muks.insider.utils.Utils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,25 +24,19 @@ import java.util.regex.Pattern;
 public class Analytics {
     private static Logger LOG = LoggerFactory.getLogger(Analytics.class);
     private static final Pattern SPACE = Pattern.compile(" ");
+    private static String BOOTSTRAP_SERVERS = null;
+    private static String TOPICS = null;
 
-    public static void main(String[] args) throws Exception {
-        if (args.length < 2) {
-            System.err.println("Usage: Analytics <brokers> <topics>\n" +
-                    "  <brokers> is a list of one or more Kafka brokers\n" +
-                    "  <topics> is a list of one or more kafka topics to consume from\n\n");
-            System.exit(1);
-        }
-
-        //StreamingExamples.setStreamingLogLevels();
-
-        String bootstrapServer = args[0];
-        String topics = args[1];
+    public static void main(String[] args) {
+        parseCommandLine(args); /** parse command line arguments */
+        System.out.println(BOOTSTRAP_SERVERS + " " + TOPICS);
+        LOG.info("Spark stream processing on the broker lists: %s, Topics=%s", BOOTSTRAP_SERVERS, TOPICS);
 
         SparkConf sparkConf = getSparkConf();
         try (JavaStreamingContext jStreamingContext = new JavaStreamingContext(sparkConf, Durations.seconds(2))) {
 
-            Set<String> topicsSet = new HashSet<>(Arrays.asList(topics.split(",")));
-            Map<String, Object> kafkaParams = getKafkaProperties(bootstrapServer);
+            Set<String> topicsSet = new HashSet<>(Arrays.asList(TOPICS.split(",")));
+            Map<String, Object> kafkaParams = getKafkaProperties(BOOTSTRAP_SERVERS);
 
             // Create direct kafka stream with brokers and topics
             JavaInputDStream<ConsumerRecord<String, String>> stream
@@ -103,5 +100,44 @@ public class Analytics {
         kafkaParams.put("enable.auto.commit", false);
 
         return kafkaParams;
+    }
+
+
+    /**
+     * Utility for parsing command line flags, using apache commons CLI. Stop JVM, if exception.
+     */
+    private static void parseCommandLine(String[] args) {
+        LOG.info("Process start time: " );
+
+        String hlpTxt
+                = "java -cp <jar-file> " + Analytics.class.getName()
+                + " -brokers <comma separated list of broker hostname> "
+                + " -topics <comma separated list of topics>";
+
+
+        ParseCLI parser = new ParseCLI(hlpTxt);
+
+        List<ParserOptionEntity> parserOptionEntityList = new ArrayList<>();
+        parserOptionEntityList.add(new ParserOptionEntity("brokers", "comma separated list of broker hostname.", true));
+        parserOptionEntityList.add(new ParserOptionEntity("topics", "comma separated list of topics.", true));
+
+
+        ParserOptions parserOptions = new ParserOptions(parserOptionEntityList);
+        String configFile = null;
+
+        try {
+            CommandLine commandline = parser.getCommandLine(args, 2, parserOptions);
+
+            if (commandline.hasOption("brokers"))
+                BOOTSTRAP_SERVERS = commandline.getOptionValue("brokers");
+
+            if (commandline.hasOption("topics"))
+                TOPICS = commandline.getOptionValue("topics");
+
+        } catch (ParseException e) {
+            e.printStackTrace();
+            System.exit(0);
+
+        }
     }
 }
