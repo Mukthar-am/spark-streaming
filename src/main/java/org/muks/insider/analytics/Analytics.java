@@ -29,6 +29,7 @@ public class Analytics {
 
     public static void main(String[] args) {
         parseCommandLine(args); /** parse command line arguments */
+
         System.out.println(BOOTSTRAP_SERVERS + " " + TOPICS);
         LOG.info("Spark stream processing on the broker lists: %s, Topics=%s", BOOTSTRAP_SERVERS, TOPICS);
 
@@ -52,7 +53,7 @@ public class Analytics {
 
             boolean processJson = true;
             if (processJson) {
-                Utils.convertJsonToDataset(stream);
+                Utils.runAnalyticsBySparkAPI(stream);
             }
 
 
