@@ -4,17 +4,24 @@ package org.muks.insider.utils;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.spark.SparkConf;
+import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
+import org.apache.spark.api.java.function.PairFunction;
 import org.apache.spark.api.java.function.VoidFunction;
 import org.apache.spark.api.java.function.VoidFunction2;
 import org.apache.spark.sql.*;
 import org.apache.spark.storage.StorageLevel;
+import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.Time;
 import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaInputDStream;
+import org.apache.spark.streaming.api.java.JavaPairDStream;
+import org.muks.insider.businessobjects.TempRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import scala.Tuple2;
+
 import java.util.HashMap;
 
 
@@ -232,5 +239,91 @@ public class Utils {
             });
         });
 
+    }
+
+
+    /**
+   * Generates a DataFrame/Dateset from a stream with window of length .  The result is based on all the
+   * data received for the window, not just the duration.
+   * @param stream
+   * @param windowLength
+   */
+    private static void windowedProcessing(JavaInputDStream<ConsumerRecord<String, String>> stream, int windowLength) {
+        JavaPairDStream<String, String> pairs = stream
+                .mapToPair(new PairFunction<ConsumerRecord<String, String>, String, String>() {
+                    @Override
+                    public Tuple2<String, String> call(ConsumerRecord<String, String> record) {
+                        return new Tuple2<>(record.key(), record.value());
+                    }
+                });
+
+        JavaPairDStream<String, String> windowedStream = pairs.window(Durations.seconds(windowLength));
+        windowedStream.foreachRDD(new VoidFunction2<JavaPairRDD<String, String>, Time>() {
+
+            @Override
+            public void call(JavaPairRDD<String, String> rdd, Time time) throws Exception {
+                SparkSession spark = JavaSparkSessionSingleton.getInstance(rdd.context().getConf());
+
+                JavaRDD<TempRow> rowRDD = rdd.map(new Function<Tuple2<String, String>, TempRow>() {
+
+                    @Override
+                    public TempRow call(Tuple2<String, String> v1) throws Exception {
+                        TempRow row = new TempRow();
+                        row.setLine2(v1._2); // This is the json text.
+                        return row;
+                    }
+
+                });
+
+                Dataset<Row> dataFrame = spark.createDataFrame(rowRDD, TempRow.class);
+                //Can also create a createGlobalTempView, shared by all sessions and kept alive until
+                //the Spark application terminates.
+                dataFrame.createOrReplaceTempView("messages");
+                //result is for the window, not just the duration.
+                //Note that a Dataset<Row> is a DataFrame.
+                //The name of the column is derived from the bean definition.
+                Dataset<Row> count = spark.sql("select count(*) from messages");
+                Dataset<Row> raw = spark.sql("select * from messages");
+                System.out.println("========= " + time + "=========");
+                raw.show();
+                count.show();
+            }
+        });
+
+    }
+
+
+    /**
+     * Generates a DataFrame/Dateset from a stream without windowing enabled.  The result
+     * is the data received during the current duration.
+     * @param stream
+     */
+    private static void nonWindowedProcessing(JavaInputDStream<ConsumerRecord<String, String>> stream) {
+        stream.foreachRDD(new VoidFunction2<JavaRDD<ConsumerRecord<String, String>>, Time>() {
+
+            @Override
+            public void call(JavaRDD<ConsumerRecord<String, String>> rdd, Time time) throws Exception {
+                SparkSession spark = JavaSparkSessionSingleton.getInstance(rdd.context().getConf());
+
+                JavaRDD<TempRow> rowRDD = rdd.map(new Function<ConsumerRecord<String, String>, TempRow>() {
+
+                    @Override
+                    public TempRow call(ConsumerRecord<String, String> v1) throws Exception {
+                        TempRow row = new TempRow();
+                        row.setLine2(v1.value()); // This is the json text.
+                        return row;
+                    }
+
+                });
+
+                Dataset<Row> dataFrame = spark.createDataFrame(rowRDD, TempRow.class);
+                dataFrame.createOrReplaceTempView("messages");
+
+                //result is only for the current duration.
+                Dataset<Row> count = spark.sql("select count(*) from messages");
+                System.out.println("========= " + time + "=========");
+                count.show();
+            }
+        });
     }
 }
