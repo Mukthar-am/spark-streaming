@@ -12,7 +12,7 @@ public class Sale implements Serializable {
     private String id = "UNDEF";
     private String imgurl = "UNDEF";
     private String name;
-    private BigDecimal price;
+    private BigDecimal product_price;
     private String url = "UNDEF";
 
     public Sale() { }
@@ -21,18 +21,18 @@ public class Sale implements Serializable {
                 BigDecimal cart_amount,
                 String product_category,
                 String id,
-                String imgUrl,
+                String imgurl,
                 String name,
-                BigDecimal price,
+                BigDecimal product_price,
                 String url) {
 
         this.user_id = user_id;
         this.cart_amount = cart_amount;
         this.product_category = product_category;
         this.id = id;
-        this.imgurl = imgUrl;
+        this.imgurl = imgurl;
         this.name = name;
-        this.price = price;
+        this.product_price = product_price;
         this.url = url;
     }
 
@@ -56,25 +56,32 @@ public class Sale implements Serializable {
     }
     public void setId(String id) { this.id = id; }
 
-    public String getImgUrl()  { return this.imgurl; }
-    public void setImgUrl(String imgUrl) { this.imgurl = imgUrl; }
+    public String getimgurl()  { return this.imgurl; }
+    public void setimgurl(String imgUrl) { this.imgurl = imgUrl; }
 
 
-    public BigDecimal getPrice() { return price; }
-    public void setPrice(BigDecimal price) { this.price = price; }
+    public BigDecimal getproduct_price() { return product_price; }
+    public void setproduct_price(BigDecimal price) { this.product_price = price; }
 
-    public String getUrl() { return this.url; }
-    public void setUrl() { this.url = url; }
+    public String geturl() { return this.url; }
+    public void seturl() { this.url = url; }
+
+    public String getname() { return this.name; }
+    public void setname(String name) { this.name = name; }
 
     @Override
     public String toString() {
         return MessageFormat.format(
-                "Sale'{'cart_amount={0}, " +
-                        "product_category={1}, " +
-                        "id={2}'}," +
-                        "imgUrl={3}," +
-                        "name={4}," +
-                        "price={5}," +
-                        "url={6}'", cart_amount, product_category, id, imgurl, name, price, url);
+                "{}, {}, {}, {}, {}, {}", user_id, id, product_category, imgurl, name, url, cart_amount, product_price);
     }
 }
+
+/**
+ user_id TEXT PRIMARY KEY,
+ id TEXT,
+ product_category TEXT,
+ imgurl TEXT,
+ name TEXT,
+ url TEXT,
+ cart_amount DOUBLE,
+ product_price DOUBLE */

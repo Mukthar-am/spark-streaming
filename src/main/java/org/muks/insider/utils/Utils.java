@@ -2,8 +2,11 @@ package org.muks.insider.utils;
 
 //import com.datastax.spark.connector.cql.CassandraConnector;
 
+import com.datastax.spark.connector.japi.CassandraJavaUtil;
+import com.datastax.spark.connector.japi.SparkContextJavaFunctions;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.spark.SparkConf;
+import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
@@ -11,8 +14,11 @@ import org.apache.spark.api.java.function.PairFunction;
 import org.apache.spark.api.java.function.VoidFunction;
 import org.apache.spark.api.java.function.VoidFunction2;
 import org.apache.spark.sql.*;
+import org.apache.spark.sql.types.DataType;
+import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.storage.StorageLevel;
 import org.apache.spark.streaming.Durations;
+import org.apache.spark.streaming.StreamingContext;
 import org.apache.spark.streaming.Time;
 import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaInputDStream;
@@ -22,7 +28,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Tuple2;
 
-import java.util.HashMap;
+import static org.apache.spark.sql.catalyst.parser.SqlBaseParser.CAST;
+import static org.apache.spark.sql.functions.sum;
 
 
 public class Utils {
@@ -48,51 +55,70 @@ public class Utils {
             @Override
             public void call(JavaRDD<String> text, Time time) throws Exception {
                 Dataset<Row> parsedJson = sparkSession.read().json(text);
-                LOG.info("========= " + time + "=========");
+                LOG.info("=== TS: " + time + "====");
+
+                if (parsedJson.count() > 0) {   /** if the read line is non-empty, proceed.... */
+                    //parsedJson.schema().printTreeString();
+
+                    if (SparkUtils.checkColumnInDataset(parsedJson, "user_id")) {
+                        LOG.info("=------------ user_id column found -------------=");
+
+                        /**
+                         * I am trying to look for all user-ids who have added some items to cart, in other terms the cart-value being > 0
+                         */
+
+                        LOG.info("========= " + time + "=========");
+
+                        Dataset productFlattened = parsedJson.select(
+                                parsedJson.col("user_id"),
+                                parsedJson.col("cart_amount").cast(DataTypes.DoubleType).as("cart_amount"),
+                                org.apache.spark.sql.functions.explode(parsedJson.col("products")).as("products_flat"))
+                                .where(parsedJson.col("cart_amount").isNotNull()
+                                        .or(parsedJson.col("cart_amount").notEqual("")
+                                        )
+                                );
+
+//                        /** Uncomment below statements to print the raw level table. */
+//                        productFlattened.printSchema();
+//                        productFlattened.show();
+//                        LOG.info("========= " + time + "=========");
 
 
-                /**
-                 * I am trying to look for all user-ids who have added some items to cart, in other terms the cart-value being > 0
-                 */
-                if (parsedJson.count() > 0) {
-                    LOG.info("========= " + time + "=========");
-                    Dataset productFlattened = parsedJson.select(
-                            parsedJson.col("user_id"),
-                            parsedJson.col("cart_amount"),
-                            org.apache.spark.sql.functions.explode(parsedJson.col("products")).as("products_flat"))
-                            .where(parsedJson.col("cart_amount").isNotNull()
-                                    .or(parsedJson.col("cart_amount").notEqual("")
-                                    )
-                            );
-
-                    /** Uncomment below statements to print the raw level table. */
-//                    productFlattened.printSchema();
-//                    productFlattened.show();
-//                    LOG.info("========= " + time + "=========");
+                        Dataset fullyExploded = productFlattened.select(
+                                productFlattened.col("user_id"),
+                                productFlattened.col("cart_amount").cast(DataTypes.DoubleType).as("cart_amount"),
+                                org.apache.spark.sql.functions.explode(
+                                        productFlattened.col("products_flat.category")).as("product_category"),
+                                productFlattened.col("products_flat.id"),
+                                productFlattened.col("products_flat.imgUrl").as("imgurl"),
+                                productFlattened.col("products_flat.name"),
+                                productFlattened.col("products_flat.price").cast(DataTypes.DoubleType),
+                                productFlattened.col("products_flat.url")
+                        );
 
 
-                    Dataset fullyExploded = productFlattened.select(
-                            productFlattened.col("user_id"),
-                            productFlattened.col("cart_amount"),
-                            org.apache.spark.sql.functions.explode(
-                                    productFlattened.col("products_flat.category")).as("product_category"),
-                            productFlattened.col("products_flat.id"),
-                            productFlattened.col("products_flat.imgUrl").as("imgurl"),
-                            productFlattened.col("products_flat.name"),
-                            productFlattened.col("products_flat.price"),
-                            productFlattened.col("products_flat.url")
-                    );
+
+                        Dataset<Row> aggregated
+                                = fullyExploded
+                                .groupBy("user_id", "id", "product_category", "imgurl", "name", "url")
+                                .agg(
+                                        sum(fullyExploded.col("cart_amount")).as("cart_amount"),
+                                        sum(fullyExploded.col("price")).as("product_price")
+                                );
 
 
-                    LOG.info(fullyExploded.toDF().toString());
-                    fullyExploded.printSchema();
+                        LOG.info("Count of the FullExploded:= " + fullyExploded.count());
+                        LOG.info("Count of the Aggregated:= " + aggregated.count());
+                        LOG.info("Show() schema");
+                        aggregated.printSchema();
+                        aggregated.show();
 
-                    LOG.info("Fully exploded show() -> ");
-                    fullyExploded.show();
 
-                    /** write to cassandra */
-                    datasetToCassandra(fullyExploded);
+                        /** write to cassandra */
+                        SparkDbConnectors.datasetToCassandra(aggregated, "insider", "insider", SaveMode.Append);
+                    }
                 }
+
             }
         });
     }
@@ -173,7 +199,7 @@ public class Utils {
 
                     Dataset fullyExploded = productFlattened.select(
                             productFlattened.col("user_id"),
-                            productFlattened.col("cart_amount"),
+                            sum(productFlattened.col("cart_amount")),
                             org.apache.spark.sql.functions.explode(
                                     productFlattened.col("products_flat.category")).as("product_category"),
                             productFlattened.col("products_flat.id"),
@@ -183,6 +209,9 @@ public class Utils {
                             productFlattened.col("products_flat.url")
                     );
 
+                    //fullyExploded.groupBy("user_id", "products_flat.id");
+                    LOG.info("Count of the RECORDS:= " + fullyExploded.count());
+                    System.out.println("Count of the RECORDS:= " + fullyExploded.count());
 
                     LOG.info(fullyExploded.toDF().toString());
                     fullyExploded.printSchema();
@@ -191,22 +220,10 @@ public class Utils {
                     fullyExploded.show();
 
                     /** write to cassandra */
-                    datasetToCassandra(fullyExploded);
-
+                    SparkDbConnectors.datasetToCassandra(fullyExploded, "insider", "insider", SaveMode.Append);
                 }
             }
         });
-    }
-
-
-    private static void datasetToCassandra(Dataset dataset) {
-        dataset.write().format("org.apache.spark.sql.cassandra").mode(SaveMode.Append)
-                .options(new HashMap<String, String>() {
-                    {
-                        put("keyspace", "insider");
-                        put("table", "insider");
-                    }
-                }).save();
     }
 
 
@@ -243,11 +260,12 @@ public class Utils {
 
 
     /**
-   * Generates a DataFrame/Dateset from a stream with window of length .  The result is based on all the
-   * data received for the window, not just the duration.
-   * @param stream
-   * @param windowLength
-   */
+     * Generates a DataFrame/Dateset from a stream with window of length .  The result is based on all the
+     * data received for the window, not just the duration.
+     *
+     * @param stream
+     * @param windowLength
+     */
     private static void windowedProcessing(JavaInputDStream<ConsumerRecord<String, String>> stream, int windowLength) {
         JavaPairDStream<String, String> pairs = stream
                 .mapToPair(new PairFunction<ConsumerRecord<String, String>, String, String>() {
@@ -296,6 +314,7 @@ public class Utils {
     /**
      * Generates a DataFrame/Dateset from a stream without windowing enabled.  The result
      * is the data received during the current duration.
+     *
      * @param stream
      */
     private static void nonWindowedProcessing(JavaInputDStream<ConsumerRecord<String, String>> stream) {
