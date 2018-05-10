@@ -19,16 +19,32 @@ spark kafka based streaming for realtime analytics
     table = insider
 
     Table schema ->
-    CREATE TABLE insider (
-    	user_id TEXT PRIMARY KEY,
+    CREATE TABLE purchase_affinity (
+    	user_id TEXT,
+    	session_id TEXT,
     	cart_amount DOUBLE,
-    	product_category TEXT,
-    	id TEXT,
-    	imgurl TEXT,
-    	name TEXT,
-    	price DOUBLE,
-    	url TEXT
-    );
+    	product_price TEXT,
+    	product_ids TEXT,
+    	year INT,
+    	month INT,
+    	day INT,
+    	hour INT,
+    	min INT,
+    	PRIMARY KEY(user_id, month)
+    ) WITH CLUSTERING ORDER BY(month DESC); 
+
+
+    Schema for the analytical data;
+     |-- user_id: string (nullable = true)
+     |-- session_id: string (nullable = true)
+     |-- cart_amount: double (nullable = true)
+     |-- product_price: double (nullable = true)
+     |-- product_ids: string (nullable = false)
+     |-- year: integer (nullable = false)
+     |-- month: integer (nullable = false)
+     |-- day: integer (nullable = false)
+     |-- hour: integer (nullable = false)
+     |-- min: integer (nullable = false)
 
 ### Misc
     SLF4J is used for logging and the logs paths are defauled to /tmp/spark-stream/logs/ with stream.log and test.log (for unit test case logging) purpose.

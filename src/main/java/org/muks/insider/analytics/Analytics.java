@@ -5,6 +5,7 @@ import org.apache.commons.cli.ParseException;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.spark.SparkConf;
+import org.apache.spark.sql.Column;
 import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.api.java.JavaInputDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
@@ -20,6 +21,9 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.regex.Pattern;
+
+import static org.apache.spark.sql.functions.current_timestamp;
+import static org.apache.spark.sql.functions.unix_timestamp;
 
 public class Analytics {
     private static Logger LOG = LoggerFactory.getLogger(Analytics.class);
@@ -86,7 +90,9 @@ public class Analytics {
                         .set("spark.speculation", "true")
                         .set("spark.speculation.interval", "100ms")
                         .set("spark.speculation.quantile", "0.90")
-                        .set("spark.speculation.multiplier", "3");
+                        .set("spark.speculation.multiplier", "3")
+                        .set("spark.sql.crossJoin.enabled", "true")
+                        .set("spark.streaming.kafka.consumer.cache.enabled", "true");
     }
 
     private static Map<String, Object> getKafkaProperties(String bootstrapServer) {

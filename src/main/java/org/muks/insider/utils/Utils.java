@@ -2,11 +2,8 @@ package org.muks.insider.utils;
 
 //import com.datastax.spark.connector.cql.CassandraConnector;
 
-import com.datastax.spark.connector.japi.CassandraJavaUtil;
-import com.datastax.spark.connector.japi.SparkContextJavaFunctions;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.spark.SparkConf;
-import org.apache.spark.SparkContext;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.function.Function;
@@ -14,11 +11,9 @@ import org.apache.spark.api.java.function.PairFunction;
 import org.apache.spark.api.java.function.VoidFunction;
 import org.apache.spark.api.java.function.VoidFunction2;
 import org.apache.spark.sql.*;
-import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.storage.StorageLevel;
 import org.apache.spark.streaming.Durations;
-import org.apache.spark.streaming.StreamingContext;
 import org.apache.spark.streaming.Time;
 import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaInputDStream;
@@ -28,8 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import scala.Tuple2;
 
-import static org.apache.spark.sql.catalyst.parser.SqlBaseParser.CAST;
-import static org.apache.spark.sql.functions.sum;
+import static org.apache.spark.sql.functions.*;
 
 
 public class Utils {
@@ -41,6 +35,14 @@ public class Utils {
      * @param stream
      */
     public static void runAnalyticsBySparkAPI(JavaInputDStream<ConsumerRecord<String, String>> stream) {
+
+        /** caching the stream data is required as at times
+         *  - spark reads from the same kafka topic thread to dump to console, write or even a count leading to ConcurrentModification exception.
+         *
+         *  Importantly, leads to memory overload too.
+         *  */
+        stream.cache();
+
         JavaDStream<String> jsonText = stream
                 .map(new Function<ConsumerRecord<String, String>, String>() {
                     @Override
@@ -58,19 +60,17 @@ public class Utils {
                 LOG.info("=== TS: " + time + "====");
 
                 if (parsedJson.count() > 0) {   /** if the read line is non-empty, proceed.... */
-                    //parsedJson.schema().printTreeString();
 
                     if (SparkUtils.checkColumnInDataset(parsedJson, "user_id")) {
-                        LOG.info("=------------ user_id column found -------------=");
-
-                        /**
-                         * I am trying to look for all user-ids who have added some items to cart, in other terms the cart-value being > 0
+                        /** Logic for user purchase affinity
+                         *      - flatten the entire json into - user_id, session_id, cart_amount and product-details
+                         *              - where cart_amount > 0
+                         *      - group by user_id, session_id, sum(cart_amount)
+                         *      - create a product_id collections list for analytics
                          */
-
-                        LOG.info("========= " + time + "=========");
-
                         Dataset productFlattened = parsedJson.select(
                                 parsedJson.col("user_id"),
+                                parsedJson.col("session_id"),
                                 parsedJson.col("cart_amount").cast(DataTypes.DoubleType).as("cart_amount"),
                                 org.apache.spark.sql.functions.explode(parsedJson.col("products")).as("products_flat"))
                                 .where(parsedJson.col("cart_amount").isNotNull()
@@ -78,44 +78,49 @@ public class Utils {
                                         )
                                 );
 
-//                        /** Uncomment below statements to print the raw level table. */
-//                        productFlattened.printSchema();
-//                        productFlattened.show();
-//                        LOG.info("========= " + time + "=========");
-
-
                         Dataset fullyExploded = productFlattened.select(
                                 productFlattened.col("user_id"),
+                                productFlattened.col("session_id"),
                                 productFlattened.col("cart_amount").cast(DataTypes.DoubleType).as("cart_amount"),
                                 org.apache.spark.sql.functions.explode(
                                         productFlattened.col("products_flat.category")).as("product_category"),
-                                productFlattened.col("products_flat.id"),
+                                productFlattened.col("products_flat.id").as("product_id"),
                                 productFlattened.col("products_flat.imgUrl").as("imgurl"),
-                                productFlattened.col("products_flat.name"),
+                                productFlattened.col("products_flat.name").as("product_name"),
                                 productFlattened.col("products_flat.price").cast(DataTypes.DoubleType),
-                                productFlattened.col("products_flat.url")
+                                productFlattened.col("products_flat.url").as("product_url")
                         );
-
 
 
                         Dataset<Row> aggregated
                                 = fullyExploded
-                                .groupBy("user_id", "id", "product_category", "imgurl", "name", "url")
+                                .groupBy("user_id", "session_id")
+                                //.groupBy("user_id", "session_id", "product_category")
                                 .agg(
                                         sum(fullyExploded.col("cart_amount")).as("cart_amount"),
-                                        sum(fullyExploded.col("price")).as("product_price")
+                                        sum(fullyExploded.col("price")).as("product_price"),
+                                        concat_ws(",", collect_list(col("product_id"))).as("product_ids")
                                 );
 
+                        DateUtils.DateTimeItems datetime = new DateUtils().currentTimestampItems();
+                        Dataset<Row> appendedMetadat
+                                = aggregated
+                                .withColumn("year", functions.lit(datetime.YEAR))
+                                .withColumn("month", functions.lit(datetime.MONTH))
+                                .withColumn("day", functions.lit(datetime.DAY))
+                                .withColumn("hour", functions.lit(datetime.HOURS))
+                                .withColumn("min", functions.lit(datetime.MINUTES));
 
+                        LOG.info("Count of the ProductFlattened:= " + productFlattened.count());
                         LOG.info("Count of the FullExploded:= " + fullyExploded.count());
-                        LOG.info("Count of the Aggregated:= " + aggregated.count());
-                        LOG.info("Show() schema");
-                        aggregated.printSchema();
-                        aggregated.show();
+                        LOG.info("Count of the Aggregated:= " + appendedMetadat.count());
+
+                        appendedMetadat.printSchema();
+                        appendedMetadat.show();
 
 
                         /** write to cassandra */
-                        SparkDbConnectors.datasetToCassandra(aggregated, "insider", "insider", SaveMode.Append);
+                        //SparkDbConnectors.datasetToCassandra(appendedMetadat, "insider", "purchase_affinity", SaveMode.Append);
                     }
                 }
 
