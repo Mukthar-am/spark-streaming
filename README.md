@@ -46,6 +46,34 @@ spark kafka based streaming for realtime analytics
      |-- hour: integer (nullable = false)
      |-- min: integer (nullable = false)
 
+
+
+    Product affinity table:
+      CREATE TABLE product_affinity (
+     	user_id TEXT,
+     	session_id TEXT,
+     	product_category TEXT,
+     	product_id TEXT,
+     	cart_amount DOUBLE,
+     	product_price TEXT,
+     	year INT,
+     	month INT,
+     	day INT,
+     	hour INT,
+     	min INT,
+     	PRIMARY KEY(user_id, month)
+     ) WITH CLUSTERING ORDER BY(month DESC);
+
+
+    Product affinity data schema:
+       |-- user_id: string (nullable = true)
+       |-- session_id: string (nullable = true)
+       |-- product_category: string (nullable = true)
+       |-- product_id: string (nullable = true)
+       |-- cart_amount: double (nullable = true)
+       |-- product_price: double (nullable = true)
+
+
 ### Misc
     SLF4J is used for logging and the logs paths are defauled to /tmp/spark-stream/logs/ with stream.log and test.log (for unit test case logging) purpose.
 
