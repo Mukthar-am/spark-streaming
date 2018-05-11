@@ -68,7 +68,7 @@ public class Utils {
                          *      - group by user_id, session_id, sum(cart_amount)
                          *      - create a product_id collections list for analytics
                          */
-                        Dataset productFlattened = parsedJson.select(
+                        Dataset purchaseDataWithProductFlat = parsedJson.select(
                                 parsedJson.col("user_id"),
                                 parsedJson.col("session_id"),
                                 parsedJson.col("cart_amount").cast(DataTypes.DoubleType).as("cart_amount"),
@@ -78,49 +78,87 @@ public class Utils {
                                         )
                                 );
 
-                        Dataset fullyExploded = productFlattened.select(
-                                productFlattened.col("user_id"),
-                                productFlattened.col("session_id"),
-                                productFlattened.col("cart_amount").cast(DataTypes.DoubleType).as("cart_amount"),
+                        Dataset purchaseDataFlattened = purchaseDataWithProductFlat.select(
+                                purchaseDataWithProductFlat.col("user_id"),
+                                purchaseDataWithProductFlat.col("session_id"),
+                                purchaseDataWithProductFlat.col("cart_amount").cast(DataTypes.DoubleType).as("cart_amount"),
                                 org.apache.spark.sql.functions.explode(
-                                        productFlattened.col("products_flat.category")).as("product_category"),
-                                productFlattened.col("products_flat.id").as("product_id"),
-                                productFlattened.col("products_flat.imgUrl").as("imgurl"),
-                                productFlattened.col("products_flat.name").as("product_name"),
-                                productFlattened.col("products_flat.price").cast(DataTypes.DoubleType),
-                                productFlattened.col("products_flat.url").as("product_url")
+                                        purchaseDataWithProductFlat.col("products_flat.category")).as("product_category"),
+                                purchaseDataWithProductFlat.col("products_flat.id").as("product_id"),
+                                purchaseDataWithProductFlat.col("products_flat.imgUrl").as("imgurl"),
+                                purchaseDataWithProductFlat.col("products_flat.name").as("product_name"),
+                                purchaseDataWithProductFlat.col("products_flat.price").cast(DataTypes.DoubleType),
+                                purchaseDataWithProductFlat.col("products_flat.url").as("product_url")
                         );
 
-
-                        Dataset<Row> aggregated
-                                = fullyExploded
+                        /**
+                         * Crunch the analytics data by having a column exploded with the product-ids
+                         */
+                        Dataset<Row> purchaseAffinityDataAggregated
+                                = purchaseDataFlattened
                                 .groupBy("user_id", "session_id")
                                 //.groupBy("user_id", "session_id", "product_category")
                                 .agg(
-                                        sum(fullyExploded.col("cart_amount")).as("cart_amount"),
-                                        sum(fullyExploded.col("price")).as("product_price"),
+                                        sum(purchaseDataFlattened.col("cart_amount")).as("cart_amount"),
+                                        sum(purchaseDataFlattened.col("price")).as("product_price"),
                                         concat_ws(",", collect_list(col("product_id"))).as("product_ids")
                                 );
 
                         DateUtils.DateTimeItems datetime = new DateUtils().currentTimestampItems();
-                        Dataset<Row> appendedMetadat
-                                = aggregated
+                        Dataset<Row> purchaseAffinityDataAggreWithTimeMeta
+                                = purchaseAffinityDataAggregated
                                 .withColumn("year", functions.lit(datetime.YEAR))
                                 .withColumn("month", functions.lit(datetime.MONTH))
                                 .withColumn("day", functions.lit(datetime.DAY))
                                 .withColumn("hour", functions.lit(datetime.HOURS))
                                 .withColumn("min", functions.lit(datetime.MINUTES));
 
-                        LOG.info("Count of the ProductFlattened:= " + productFlattened.count());
-                        LOG.info("Count of the FullExploded:= " + fullyExploded.count());
-                        LOG.info("Count of the Aggregated:= " + appendedMetadat.count());
+                        LOG.info("Count of the ProductFlattened:= " + purchaseDataWithProductFlat.count());
+                        LOG.info("Count of the FullExploded:= " + purchaseDataFlattened.count());
+                        LOG.info("Count of the Purchase Affinity Data:= " + purchaseAffinityDataAggreWithTimeMeta.count());
 
-                        appendedMetadat.printSchema();
-                        appendedMetadat.show();
+                        purchaseAffinityDataAggreWithTimeMeta.printSchema();
+                        purchaseAffinityDataAggreWithTimeMeta.show();
+
+                        /* write to cassandra */
+                        SparkDbConnectors.datasetToCassandra(
+                                purchaseAffinityDataAggreWithTimeMeta,
+                                "insider",
+                                "purchase_affinity",
+                                SaveMode.Append);
 
 
-                        /** write to cassandra */
-                        //SparkDbConnectors.datasetToCassandra(appendedMetadat, "insider", "purchase_affinity", SaveMode.Append);
+                        /**
+                         * Crunch the analytics data by having a column exploded with the product-ids
+                         */
+                        Dataset<Row> purchaseDataExplode
+                                = purchaseDataFlattened
+                                .groupBy("user_id", "session_id", "product_category", "product_id")
+                                .agg(
+                                        sum(purchaseDataFlattened.col("cart_amount")).as("cart_amount"),
+                                        sum(purchaseDataFlattened.col("price")).as("product_price")
+                                );
+
+                        datetime = new DateUtils().currentTimestampItems();
+                        Dataset<Row> purchaseDataExplodeWithMeta
+                                = purchaseDataExplode
+                                .withColumn("year", functions.lit(datetime.YEAR))
+                                .withColumn("month", functions.lit(datetime.MONTH))
+                                .withColumn("day", functions.lit(datetime.DAY))
+                                .withColumn("hour", functions.lit(datetime.HOURS))
+                                .withColumn("min", functions.lit(datetime.MINUTES));
+
+
+                        LOG.info("Purchase Data::= " + purchaseDataExplode.count());
+                        purchaseDataExplode.printSchema();
+                        purchaseDataExplodeWithMeta.show();
+
+                        /* write to cassandra */
+                        SparkDbConnectors.datasetToCassandra(
+                                purchaseDataExplodeWithMeta,
+                                "insider",
+                                "product_affinity",
+                                SaveMode.Append);
                     }
                 }
 
@@ -196,11 +234,6 @@ public class Utils {
                                     )
                             );
 
-                    /** Uncomment below statements to print the raw level table. */
-//                    productFlattened.printSchema();
-//                    productFlattened.show();
-//                    LOG.info("========= " + time + "=========");
-
 
                     Dataset fullyExploded = productFlattened.select(
                             productFlattened.col("user_id"),
@@ -214,11 +247,8 @@ public class Utils {
                             productFlattened.col("products_flat.url")
                     );
 
-                    //fullyExploded.groupBy("user_id", "products_flat.id");
-                    LOG.info("Count of the RECORDS:= " + fullyExploded.count());
-                    System.out.println("Count of the RECORDS:= " + fullyExploded.count());
 
-                    LOG.info(fullyExploded.toDF().toString());
+                    LOG.info("Count of the RECORDS:= " + fullyExploded.count());
                     fullyExploded.printSchema();
 
                     LOG.info("Fully exploded show() -> ");

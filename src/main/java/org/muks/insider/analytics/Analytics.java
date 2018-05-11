@@ -5,7 +5,6 @@ import org.apache.commons.cli.ParseException;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.spark.SparkConf;
-import org.apache.spark.sql.Column;
 import org.apache.spark.streaming.Durations;
 import org.apache.spark.streaming.api.java.JavaInputDStream;
 import org.apache.spark.streaming.api.java.JavaStreamingContext;
@@ -21,9 +20,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.*;
 import java.util.regex.Pattern;
-
-import static org.apache.spark.sql.functions.current_timestamp;
-import static org.apache.spark.sql.functions.unix_timestamp;
 
 public class Analytics {
     private static Logger LOG = LoggerFactory.getLogger(Analytics.class);
@@ -113,7 +109,7 @@ public class Analytics {
      * Utility for parsing command line flags, using apache commons CLI. Stop JVM, if exception.
      */
     private static void parseCommandLine(String[] args) {
-        LOG.info("Process start time: " );
+        LOG.info("Process start time: ");
 
         String hlpTxt
                 = "java -cp <jar-file> " + Analytics.class.getName()

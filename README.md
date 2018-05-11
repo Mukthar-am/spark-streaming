@@ -31,7 +31,7 @@ spark kafka based streaming for realtime analytics
     	hour INT,
     	min INT,
     	PRIMARY KEY(user_id, month)
-    ) WITH CLUSTERING ORDER BY(month DESC); 
+    ) WITH CLUSTERING ORDER BY(month DESC);
 
 
     Schema for the analytical data;

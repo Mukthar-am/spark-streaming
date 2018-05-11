@@ -75,13 +75,3 @@ public class Sale implements Serializable {
                 "{}, {}, {}, {}, {}, {}", user_id, id, product_category, imgurl, name, url, cart_amount, product_price);
     }
 }
-
-/**
- user_id TEXT PRIMARY KEY,
- id TEXT,
- product_category TEXT,
- imgurl TEXT,
- name TEXT,
- url TEXT,
- cart_amount DOUBLE,
- product_price DOUBLE */
