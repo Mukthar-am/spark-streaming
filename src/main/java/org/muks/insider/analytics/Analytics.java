@@ -97,7 +97,8 @@ public class Analytics {
         kafkaParams.put("bootstrap.servers", bootstrapServer);
         kafkaParams.put("key.deserializer", StringDeserializer.class);
         kafkaParams.put("value.deserializer", StringDeserializer.class);
-        kafkaParams.put("group.id", "insidergroup");
+        kafkaParams.put("group.id", "insider_stream");
+        kafkaParams.put("kafka.consumer.id", "insider-stre");
         kafkaParams.put("auto.offset.reset", "latest");
         kafkaParams.put("enable.auto.commit", false);
 

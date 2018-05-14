@@ -18,6 +18,9 @@ import org.apache.spark.streaming.Time;
 import org.apache.spark.streaming.api.java.JavaDStream;
 import org.apache.spark.streaming.api.java.JavaInputDStream;
 import org.apache.spark.streaming.api.java.JavaPairDStream;
+import org.apache.spark.streaming.kafka010.CanCommitOffsets;
+import org.apache.spark.streaming.kafka010.HasOffsetRanges;
+import org.apache.spark.streaming.kafka010.OffsetRange;
 import org.muks.insider.businessobjects.TempRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -159,10 +162,18 @@ public class Utils {
                                 "insider",
                                 "product_affinity",
                                 SaveMode.Append);
+
                     }
                 }
 
             }
+        });
+
+        stream.foreachRDD(rdd -> {
+            OffsetRange[] offsetRanges = ((HasOffsetRanges) rdd.rdd()).offsetRanges();
+                LOG.info("Offset Ranges: {} ", offsetRanges);
+            // some time later, after outputs have completed
+            ((CanCommitOffsets) stream.inputDStream()).commitAsync(offsetRanges);
         });
     }
 
